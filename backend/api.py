@@ -2,12 +2,11 @@ import numpy as np
 import torch
 import time
 
-from transformers import (BertTokenizer, BertForMaskedLM)
+from transformers import (BertTokenizer, BertForMaskedLM, GPT2Tokenizer)
 from .class_register import register_api
 
-import sys
-sys.path.append('../../arabert')
-from arabert.preprocess import ArabertPreprocessor
+
+from .arabert.preprocess import ArabertPreprocessor
 
 class AbstractLanguageChecker():
     """
@@ -70,16 +69,16 @@ def top_k_logits(logits, k):
 
 
 @register_api(name='aragpt2-base')
-class LM(AbstractLanguageChecker):
+class LMBase(AbstractLanguageChecker):
     def __init__(self, model_name_or_path="aubmindlab/aragpt2-base"):
-        super(LM, self).__init__()
+        super(LMBase, self).__init__()
         from transformers import GPT2LMHeadModel, GPT2Tokenizer
         self.enc = GPT2Tokenizer.from_pretrained(model_name_or_path)
         self.model = GPT2LMHeadModel.from_pretrained(model_name_or_path)
         self.model.to(self.device)
         self.model.eval()
         self.arabert_prep = ArabertPreprocessor(model_name=model_name_or_path, keep_emojis=False)
-        #self.start_token = '<|endoftext|>'
+        self.start_token = '<|endoftext|>'
         print("Loaded AraGPT2-base model!")
 
     def check_probabilities(self, in_text, topk=40):
@@ -95,8 +94,8 @@ class LM(AbstractLanguageChecker):
                                dtype=torch.long).unsqueeze(0)
         #context = torch.cat([start_t, context], dim=1)
         # Forward through the model
-        logits, _ = self.model(context)
-
+        out = self.model(context)
+        logits = out['logits']
         # construct target and pred
         yhat = torch.softmax(logits[0, :-1], dim=-1)
         y = context[0, 1:]
@@ -140,28 +139,9 @@ class LM(AbstractLanguageChecker):
         https://github.com/huggingface/pytorch-pretrained-BERT/blob/master/examples/run_gpt2.py
 
         '''
-        context = torch.full((1, 1),
-                             self.enc.encoder[self.start_token],
-                             device=self.device,
-                             dtype=torch.long)
-        prev = context
-        output = context
-        past = None
-        # Forward through the model
-        with torch.no_grad():
-            for i in range(length):
-                logits, past = self.model(prev, past=past)
-                logits = logits[:, -1, :] / temperature
-                # Filter predictions to topk and softmax
-                probs = torch.softmax(top_k_logits(logits, k=topk),
-                                      dim=-1)
-                # Sample
-                prev = torch.multinomial(probs, num_samples=1)
-                # Construct output
-                output = torch.cat((output, prev), dim=1)
-
-        output_text = self.enc.decode(output[0].tolist())
-        return output_text
+        input_ids = self.enc("مرحبا", return_tensors="pt").input_ids
+        output_text = self.model.generate(input_ids=input_ids, max_length=length,top_k=topk,temperature=temperature)
+        return self.enc.decode(output_text[0], skip_special_tokens=False)
 
     def postprocess(self, token):
         with_space = False
@@ -189,17 +169,17 @@ class LM(AbstractLanguageChecker):
         return token
 
 @register_api(name='aragpt2-mega')
-class LM(AbstractLanguageChecker):
-    def __init__(self, model_name_or_path="aubmindlab/aragpt2-base"):
-        super(LM, self).__init__()
-        from arabert.aragpt2.grover.modeling_gpt2 import GPT2LMHeadModel, GPT2Tokenizer
+class LMMega(AbstractLanguageChecker):
+    def __init__(self, model_name_or_path="aubmindlab/aragpt2-mega"):
+        super(LMMega, self).__init__()
+        from arabert.aragpt2.grover.modeling_gpt2 import GPT2LMHeadModel
 
         self.enc = GPT2Tokenizer.from_pretrained(model_name_or_path)
         self.model = GPT2LMHeadModel.from_pretrained(model_name_or_path)
         self.model.to(self.device)
         self.model.eval()
         self.arabert_prep = ArabertPreprocessor(model_name=model_name_or_path, keep_emojis=False)
-        #self.start_token = '<|endoftext|>'
+        self.start_token = '<|endoftext|>'
         print("Loaded AraGPT2-base model!")
 
     def check_probabilities(self, in_text, topk=40):
@@ -260,28 +240,9 @@ class LM(AbstractLanguageChecker):
         https://github.com/huggingface/pytorch-pretrained-BERT/blob/master/examples/run_gpt2.py
 
         '''
-        context = torch.full((1, 1),
-                             self.enc.encoder[self.start_token],
-                             device=self.device,
-                             dtype=torch.long)
-        prev = context
-        output = context
-        past = None
-        # Forward through the model
-        with torch.no_grad():
-            for i in range(length):
-                logits, past = self.model(prev, past=past)
-                logits = logits[:, -1, :] / temperature
-                # Filter predictions to topk and softmax
-                probs = torch.softmax(top_k_logits(logits, k=topk),
-                                      dim=-1)
-                # Sample
-                prev = torch.multinomial(probs, num_samples=1)
-                # Construct output
-                output = torch.cat((output, prev), dim=1)
-
-        output_text = self.enc.decode(output[0].tolist())
-        return output_text
+        input_ids = self.enc("مرحبا", return_tensors="pt").input_ids
+        output_text = self.model.generate(input_ids=input_ids, max_length=length,top_k=topk,temperature=temperature)
+        return self.enc.decode(output_text[0], skip_special_tokens=False)
 
     def postprocess(self, token):
         with_space = False
@@ -452,17 +413,17 @@ def main():
     '''
     Tests for BERT
     '''
-    lm = BERTLM()
-    start = time.time()
-    payload = lm.check_probabilities(raw_text, topk=5)
-    end = time.time()
-    print("{:.2f} Seconds for a run with BERT".format(end - start))
+    # lm = BERTLM()
+    # start = time.time()
+    # payload = lm.check_probabilities(raw_text, topk=5)
+    # end = time.time()
+    # print("{:.2f} Seconds for a run with BERT".format(end - start))
     # print("SAMPLE:", sample)
 
     '''
     Tests for GPT-2
     '''
-    lm = LM()
+    lm = LMBase()
     start = time.time()
     payload = lm.check_probabilities(raw_text, topk=5)
     end = time.time()
