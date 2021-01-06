@@ -2,11 +2,10 @@ import numpy as np
 import torch
 import time
 
-from transformers import (BertTokenizer, BertForMaskedLM, GPT2Tokenizer)
+from pytorch_pretrained_bert import (GPT2LMHeadModel, GPT2Tokenizer,
+                                     BertTokenizer, BertForMaskedLM)
 from .class_register import register_api
 
-
-from .arabert.preprocess import ArabertPreprocessor
 
 class AbstractLanguageChecker():
     """
@@ -68,132 +67,28 @@ def top_k_logits(logits, k):
                        logits)
 
 
-@register_api(name='aragpt2-base')
-class LMBase(AbstractLanguageChecker):
-    def __init__(self, model_name_or_path="aubmindlab/aragpt2-base"):
-        super(LMBase, self).__init__()
-        from transformers import GPT2LMHeadModel, GPT2Tokenizer
+@register_api(name='gpt-2-small')
+class LM(AbstractLanguageChecker):
+    def __init__(self, model_name_or_path="gpt2"):
+        super(LM, self).__init__()
         self.enc = GPT2Tokenizer.from_pretrained(model_name_or_path)
         self.model = GPT2LMHeadModel.from_pretrained(model_name_or_path)
         self.model.to(self.device)
         self.model.eval()
-        self.arabert_prep = ArabertPreprocessor(model_name=model_name_or_path, keep_emojis=False)
         self.start_token = '<|endoftext|>'
-        print("Loaded AraGPT2-base model!")
+        print("Loaded GPT-2 model!")
 
     def check_probabilities(self, in_text, topk=40):
         # Process input
-        # start_t = torch.full((1, 1),
-        #                      self.enc.encoder[self.start_token],
-        #                      device=self.device,
-        #                      dtype=torch.long)
-        in_text = self.arabert_prep.preprocess(in_text)
+        start_t = torch.full((1, 1),
+                             self.enc.encoder[self.start_token],
+                             device=self.device,
+                             dtype=torch.long)
         context = self.enc.encode(in_text)
         context = torch.tensor(context,
                                device=self.device,
                                dtype=torch.long).unsqueeze(0)
-        #context = torch.cat([start_t, context], dim=1)
-        # Forward through the model
-        out = self.model(context)
-        logits = out['logits']
-        # construct target and pred
-        yhat = torch.softmax(logits[0, :-1], dim=-1)
-        y = context[0, 1:]
-        # Sort the predictions for each timestep
-        sorted_preds = np.argsort(-yhat.data.cpu().numpy())
-        # [(pos, prob), ...]
-        real_topk_pos = list(
-            [int(np.where(sorted_preds[i] == y[i].item())[0][0])
-             for i in range(y.shape[0])])
-        real_topk_probs = yhat[np.arange(
-            0, y.shape[0], 1), y].data.cpu().numpy().tolist()
-        real_topk_probs = list(map(lambda x: round(x, 5), real_topk_probs))
-
-        real_topk = list(zip(real_topk_pos, real_topk_probs))
-        # [str, str, ...]
-        bpe_strings = [self.enc.decoder[s.item()] for s in context[0]]
-
-        bpe_strings = [self.postprocess(s) for s in bpe_strings]
-
-        # [[(pos, prob), ...], [(pos, prob), ..], ...]
-        pred_topk = [
-            list(zip([self.enc.decoder[p] for p in sorted_preds[i][:topk]],
-                     list(map(lambda x: round(x, 5),
-                              yhat[i][sorted_preds[i][
-                                      :topk]].data.cpu().numpy().tolist()))))
-            for i in range(y.shape[0])]
-
-        pred_topk = [[(self.postprocess(t[0]), t[1]) for t in pred] for pred in pred_topk]
-        payload = {'bpe_strings': bpe_strings,
-                   'real_topk': real_topk,
-                   'pred_topk': pred_topk}
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-
-        return payload
-
-    def sample_unconditional(self, length=100, topk=5, temperature=1.0):
-        '''
-        Sample `length` words from the model.
-        Code strongly inspired by
-        https://github.com/huggingface/pytorch-pretrained-BERT/blob/master/examples/run_gpt2.py
-
-        '''
-        input_ids = self.enc("مرحبا", return_tensors="pt").input_ids
-        output_text = self.model.generate(input_ids=input_ids, max_length=length,top_k=topk,temperature=temperature)
-        return self.enc.decode(output_text[0], skip_special_tokens=False)
-
-    def postprocess(self, token):
-        with_space = False
-        with_break = False
-        if token.startswith('Ġ'):
-            with_space = True
-            token = token[1:]
-            # print(token)
-        elif token.startswith('â'):
-            token = ' '
-        elif token.startswith('Ċ'):
-            token = ' '
-            with_break = True
-
-        token = '-' if token.startswith('â') else token
-        token = '“' if token.startswith('ľ') else token
-        token = '”' if token.startswith('Ŀ') else token
-        token = "'" if token.startswith('Ļ') else token
-
-        if with_space:
-            token = '\u0120' + token
-        if with_break:
-            token = '\u010A' + token
-
-        return token
-
-@register_api(name='aragpt2-mega')
-class LMMega(AbstractLanguageChecker):
-    def __init__(self, model_name_or_path="aubmindlab/aragpt2-mega"):
-        super(LMMega, self).__init__()
-        from arabert.aragpt2.grover.modeling_gpt2 import GPT2LMHeadModel
-
-        self.enc = GPT2Tokenizer.from_pretrained(model_name_or_path)
-        self.model = GPT2LMHeadModel.from_pretrained(model_name_or_path)
-        self.model.to(self.device)
-        self.model.eval()
-        self.arabert_prep = ArabertPreprocessor(model_name=model_name_or_path, keep_emojis=False)
-        self.start_token = '<|endoftext|>'
-        print("Loaded AraGPT2-base model!")
-
-    def check_probabilities(self, in_text, topk=40):
-        # Process input
-        # start_t = torch.full((1, 1),
-        #                      self.enc.encoder[self.start_token],
-        #                      device=self.device,
-        #                      dtype=torch.long)
-        in_text = self.arabert_prep.preprocess(in_text)
-        context = self.enc.encode(in_text)
-        context = torch.tensor(context,
-                               device=self.device,
-                               dtype=torch.long).unsqueeze(0)
-        #context = torch.cat([start_t, context], dim=1)
+        context = torch.cat([start_t, context], dim=1)
         # Forward through the model
         logits, _ = self.model(context)
 
@@ -240,9 +135,28 @@ class LMMega(AbstractLanguageChecker):
         https://github.com/huggingface/pytorch-pretrained-BERT/blob/master/examples/run_gpt2.py
 
         '''
-        input_ids = self.enc("مرحبا", return_tensors="pt").input_ids
-        output_text = self.model.generate(input_ids=input_ids, max_length=length,top_k=topk,temperature=temperature)
-        return self.enc.decode(output_text[0], skip_special_tokens=False)
+        context = torch.full((1, 1),
+                             self.enc.encoder[self.start_token],
+                             device=self.device,
+                             dtype=torch.long)
+        prev = context
+        output = context
+        past = None
+        # Forward through the model
+        with torch.no_grad():
+            for i in range(length):
+                logits, past = self.model(prev, past=past)
+                logits = logits[:, -1, :] / temperature
+                # Filter predictions to topk and softmax
+                probs = torch.softmax(top_k_logits(logits, k=topk),
+                                      dim=-1)
+                # Sample
+                prev = torch.multinomial(probs, num_samples=1)
+                # Construct output
+                output = torch.cat((output, prev), dim=1)
+
+        output_text = self.enc.decode(output[0].tolist())
+        return output_text
 
     def postprocess(self, token):
         with_space = False
@@ -269,9 +183,10 @@ class LMMega(AbstractLanguageChecker):
 
         return token
 
-@register_api(name='arabertv02-base')
+
+@register_api(name='BERT')
 class BERTLM(AbstractLanguageChecker):
-    def __init__(self, model_name_or_path="aubmindlab/bert-base-arabertv02"):
+    def __init__(self, model_name_or_path="bert-base-cased"):
         super(BERTLM, self).__init__()
         self.device = torch.device(
             "cuda" if torch.cuda.is_available() else "cpu")
@@ -285,7 +200,6 @@ class BERTLM(AbstractLanguageChecker):
         # BERT-specific symbols
         self.mask_tok = self.tokenizer.convert_tokens_to_ids(["[MASK]"])[0]
         self.pad = self.tokenizer.convert_tokens_to_ids(["[PAD]"])[0]
-        self.arabert_prep = ArabertPreprocessor(model_name=model_name_or_path, keep_emojis=False)
         print("Loaded BERT model!")
 
     def check_probabilities(self, in_text, topk=40, max_context=20,
@@ -296,7 +210,6 @@ class BERTLM(AbstractLanguageChecker):
         fed in left and right
         Speeds up inference since BERT requires prediction word by word
         '''
-        in_text = self.arabert_prep.preprocess(in_text)
         in_text = "[CLS] " + in_text + " [SEP]"
         tokenized_text = self.tokenizer.tokenize(in_text)
         # Construct target
@@ -404,26 +317,45 @@ class BERTLM(AbstractLanguageChecker):
 
 
 def main():
-
     raw_text = """
-    أحدث حصول لقاح شركة " أوكسفورد " البريطانية على الموافقة في موطنه ، حالة من الارتياح في العالم ، نظرا إلى فعاليته في وقاية الجسم من وباء كورونا  ، فضلا عن سعره المناسب وسهولة تخزينه اللافتة مقارنة بالتطعيمات الأخرى المتاحة في السوق الدولية . وبحسب شبكة " سكاي نيوز " البريطانية فإن هذا الموافقة على هذا اللقاح تعني الشيء الكثير للعالم وليست مجرد خبر عادي . وقالت الشبكة إن هذه هي المرة الأولى التي يحصل فيها لقاح مضاد لكورونا على موافقة منظمة الصحة العالمية ، كما أنها المرة الأولى التي تحصل فيها شركة بريطانية على مثل هذه الموافقة منذ أكثر من 20 عاما . وأضافت أن الشركة حصلت أيضا على موافقة إدارة الغذاء والدواء الأميركية ( FDA ) لقاحها المضاد لفيروس زيكا الذي تم تطويره بالتعاون مع شركة " غلاكسو سميثكلاين " للأدوية وشركة " سانوفي أفنتيس " الفرنسية للصناعات الدوائية . وأشارت إلى أنه لم يتم حتى الآن الإعلان عن أي حالات إصابة بكورونا بين البشر في الولايات المتحدة أو غيرها من دول العالم . ونقلت الشبكة عن المدير التنفيذي لشركة " جلاكسو سميث كلاين " قوله : " نحن سعداء للغاية بحصولنا على هذه الموافقة لأن ذلك يعني أننا تمكنا من تحقيق هدفنا المتمثل في حماية أكبر عدد ممكن من الناس من الإصابة بفيروس كورونا " . وأضاف : " نأمل أن نتمكن من إنتاج المزيد من اللقاحات المضادة لهذا الفيروس وغيره من الأمراض المعدية المنتشرة في جميع أنحاء العالم خلال السنوات القليلة المقبلة "
-    يذكر أن فيروس كورونا المسبب لمتلازمة الشرق الأوسط التنفسية هو أحد الفيروسات التي تصيب الجهاز التنفسي ، ولا توجد حتى الآن على مستوى العالم معلومات دقيقة عن مصدر هذا الفيروس ولا طرق انتقاله ، كما لا يوجد تطعيم وقائي أو مضاد حيوي لعلاجه . لكن مراكز السيطرة على الأمراض والوقاية منها بالولايات المتحدة الأميركية كانت قد أعلنت في وقت سابق من الشهر الجاري أن لقاحا تجريبيا أنتجته شركة " نوفارتس " السويسرية أثبت فاعليته في الوقاية من مرض متلازمة الشرق الأوسط التنفسية ( MERS - CoV ) لدى الأطفال والبالغين الذين يعانون من أعراض شبيهة بأعراض الانفلونزا . وكانت منظمة الصحة العالمية قد أعلنت في شهر سبتمبر أيلول الماضي تسجيل أول حالة وفاة ناجمة عن الإصابة بفيروس كورونا في المملكة العربية السعودية ، حيث توفي رجل يبلغ من العمر 69 عاما كان يعاني من عدة أمراض مزمنة جراء إصابته بهذا الفيروس . وكان الرجل قد نقل إلى مستشفى الملك فيصل التخصصي ومركز الأبحاث في مدينة الرياض بعد شعوره بأعراض تنفسية حادة أدت إلى دخوله في غيبوبة وتوفي بعد يومين من إدخاله المستشفى . وقال الدكتور علاء العلوان المدير العام للمكتب التنفيذي لمجلس وزراء الصحة لدول مجلس التعاون ورئيس اللجنة الخليجية لمكافحة الأمراض المعدية إنه بناء على ما أعلنته منظمة الصحة العالمية فقد تمت الموافقة على طلب وزارة الصحة بالمملكة العربية السعودية لتزويدها باللقاح الواقي
+    In a shocking finding, scientist discovered a herd of unicorns living in a remote, previously unexplored valley, in the Andes Mountains. Even more surprising to the researchers was the fact that the unicorns spoke perfect English.
+
+    The scientist named the population, after their distinctive horn, Ovid’s Unicorn. These four-horned, silver-white unicorns were previously unknown to science.
+
+    Now, after almost two centuries, the mystery of what sparked this odd phenomenon is finally solved.
+
+    Dr. Jorge Pérez, an evolutionary biologist from the University of La Paz, and several companions, were exploring the Andes Mountains when they found a small valley, with no other animals or humans. Pérez noticed that the valley had what appeared to be a natural fountain, surrounded by two peaks of rock and silver snow.
+
+    Pérez and the others then ventured further into the valley. “By the time we reached the top of one peak, the water looked blue, with some crystals on top,” said Pérez.
+
+    Pérez and his friends were astonished to see the unicorn herd. These creatures could be seen from the air without having to move too much to see them – they were so close they could touch their horns.
+
+    While examining these bizarre creatures the scientists discovered that the creatures also spoke some fairly regular English. Pérez stated, “We can see, for example, that they have a common ‘language,’ something like a dialect or dialectic.”
+
+    Dr. Pérez believes that the unicorns may have originated in Argentina, where the animals were believed to be descendants of a lost race of people who lived there before the arrival of humans in those parts of South America.
+
+    While their origins are still unclear, some believe that perhaps the creatures were created when a human and a unicorn met each other in a time before human civilization. According to Pérez, “In South America, such incidents seem to be quite common.”
+
+    However, Pérez also pointed out that it is likely that the only way of knowing for sure if unicorns are indeed the descendants of a lost alien race is through DNA. “But they seem to be able to communicate in English quite well, which I believe is a sign of evolution, or at least a change in social organization,” said the scientist.
+    """
+    raw_text = """
+    In a shocking finding, scientist discovered a herd of unicorns living in a remote, previously unexplored valley, in the Andes Mountains. Even more surprising to the researchers was the fact that the unicorns spoke perfect English.
     """
 
     '''
     Tests for BERT
     '''
-    # lm = BERTLM()
-    # start = time.time()
-    # payload = lm.check_probabilities(raw_text, topk=5)
-    # end = time.time()
-    # print("{:.2f} Seconds for a run with BERT".format(end - start))
+    lm = BERTLM()
+    start = time.time()
+    payload = lm.check_probabilities(raw_text, topk=5)
+    end = time.time()
+    print("{:.2f} Seconds for a run with BERT".format(end - start))
     # print("SAMPLE:", sample)
 
     '''
     Tests for GPT-2
     '''
-    lm = LMBase()
+    lm = LM()
     start = time.time()
     payload = lm.check_probabilities(raw_text, topk=5)
     end = time.time()
