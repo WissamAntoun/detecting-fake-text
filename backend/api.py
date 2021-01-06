@@ -4,8 +4,15 @@ import time
 
 from transformers import (GPT2LMHeadModel, GPT2Tokenizer,
                                      BertTokenizer, BertForMaskedLM)
-from .class_register import register_api
 
+
+#use this for aragpt2-mega
+from transformers import (GPT2Tokenizer,
+                                     BertTokenizer, BertForMaskedLM)
+from .arabert.aragpt2.grover.modeling_gpt2 import GPT2LMHeadModel
+
+from .class_register import register_api
+from .arabert.preprocess import ArabertPreprocessor
 
 class AbstractLanguageChecker():
     """
@@ -71,14 +78,16 @@ def top_k_logits(logits, k):
 class LM(AbstractLanguageChecker):
     def __init__(self, model_name_or_path="gpt2"):
         super(LM, self).__init__()
-        self.enc = GPT2Tokenizer.from_pretrained("aubmindlab/aragpt2-base")
-        self.model = GPT2LMHeadModel.from_pretrained("aubmindlab/aragpt2-base")
+        self.enc = GPT2Tokenizer.from_pretrained("aubmindlab/aragpt2-mega")
+        self.model = GPT2LMHeadModel.from_pretrained("aubmindlab/aragpt2-mega")
         self.model.to(self.device)
         self.model.eval()
         self.start_token = '<|endoftext|>'
+        self.arabert_prep = ArabertPreprocessor(model_name="aubmindlab/aragpt2-mega")
         print("Loaded GPT-2 model!")
 
     def check_probabilities(self, in_text, topk=40):
+        in_text = arabert_prep.preprocess(in_text)
         # Process input
         start_t = torch.full((1, 1),
                              self.enc.encoder[self.start_token],
@@ -173,7 +182,7 @@ class LM(AbstractLanguageChecker):
             token = ' '
             with_break = True
 
-        token = self.enc.convert_tokens_to_string(token).strip()
+        token = self.enc.convert_tokens_to_string(token).replace("Ġ","")
 
         token = '-' if token.startswith('â') else token
         token = '“' if token.startswith('ľ') else token
