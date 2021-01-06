@@ -108,8 +108,10 @@ class LM(AbstractLanguageChecker):
         real_topk = list(zip(real_topk_pos, real_topk_probs))
         # [str, str, ...]
         bpe_strings = [self.enc.decoder[s.item()] for s in context[0]]
+        print(bpe_strings)
 
         bpe_strings = [self.postprocess(s) for s in bpe_strings]
+        print(bpe_strings)
 
         # [[(pos, prob), ...], [(pos, prob), ..], ...]
         pred_topk = [
@@ -171,6 +173,8 @@ class LM(AbstractLanguageChecker):
             token = ' '
             with_break = True
 
+        token = self.enc.convert_tokens_to_string(token).strip()
+
         token = '-' if token.startswith('â') else token
         token = '“' if token.startswith('ľ') else token
         token = '”' if token.startswith('Ŀ') else token
@@ -182,6 +186,7 @@ class LM(AbstractLanguageChecker):
             token = '\u010A' + token
 
         return token
+        #return self.enc.convert_tokens_to_string(token)
 
 
 @register_api(name='BERT')
