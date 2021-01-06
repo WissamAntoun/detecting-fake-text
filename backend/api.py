@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import time
 
-from pytorch_pretrained_bert import (GPT2LMHeadModel, GPT2Tokenizer,
+from transformers import (GPT2LMHeadModel, GPT2Tokenizer,
                                      BertTokenizer, BertForMaskedLM)
 from .class_register import register_api
 
@@ -71,8 +71,8 @@ def top_k_logits(logits, k):
 class LM(AbstractLanguageChecker):
     def __init__(self, model_name_or_path="gpt2"):
         super(LM, self).__init__()
-        self.enc = GPT2Tokenizer.from_pretrained(model_name_or_path)
-        self.model = GPT2LMHeadModel.from_pretrained(model_name_or_path)
+        self.enc = GPT2Tokenizer.from_pretrained("aubmindlab/aragpt2-base")
+        self.model = GPT2LMHeadModel.from_pretrained("aubmindlab/aragpt2-base")
         self.model.to(self.device)
         self.model.eval()
         self.start_token = '<|endoftext|>'
@@ -90,7 +90,7 @@ class LM(AbstractLanguageChecker):
                                dtype=torch.long).unsqueeze(0)
         context = torch.cat([start_t, context], dim=1)
         # Forward through the model
-        logits, _ = self.model(context)
+        logits = self.model(context)['logits']
 
         # construct target and pred
         yhat = torch.softmax(logits[0, :-1], dim=-1)
