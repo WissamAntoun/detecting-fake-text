@@ -87,7 +87,7 @@ class LM(AbstractLanguageChecker):
         print("Loaded GPT-2 model!")
 
     def check_probabilities(self, in_text, topk=40):
-        in_text = arabert_prep.preprocess(in_text)
+        in_text = self.arabert_prep.preprocess(in_text)
         # Process input
         start_t = torch.full((1, 1),
                              self.enc.encoder[self.start_token],
@@ -182,7 +182,14 @@ class LM(AbstractLanguageChecker):
             token = ' '
             with_break = True
 
-        token = self.enc.convert_tokens_to_string(token).replace("Ġ","")
+        try:
+            token2 = self.enc.convert_tokens_to_string(token).replace("Ġ","")
+        except:
+            print("error with token: ",token)
+            token2 = token
+
+        token = token2
+
 
         token = '-' if token.startswith('â') else token
         token = '“' if token.startswith('ľ') else token
