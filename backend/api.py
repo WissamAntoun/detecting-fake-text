@@ -291,7 +291,7 @@ class BERTLM(AbstractLanguageChecker):
             for src, tgt in zip(input_batches, target_batches):
                 # Compute one batch of inputs
                 # By construction, MASK is always the middle
-                logits = self.model(src, torch.zeros_like(src))[:,
+                logits = self.model(src, torch.zeros_like(src))['logits'][:,
                          max_context + 1]
                 yhat = torch.softmax(logits, dim=-1)
 
