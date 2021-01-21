@@ -78,12 +78,12 @@ def top_k_logits(logits, k):
 class LM(AbstractLanguageChecker):
     def __init__(self, model_name_or_path="gpt2"):
         super(LM, self).__init__()
-        self.enc = GPT2Tokenizer.from_pretrained("aubmindlab/aragpt2-mega")
-        self.model = GPT2LMHeadModel.from_pretrained("aubmindlab/aragpt2-mega")
+        self.enc = GPT2Tokenizer.from_pretrained("aubmindlab/aragpt2-base")
+        self.model = GPT2LMHeadModel.from_pretrained("aubmindlab/aragpt2-base")
         self.model.to(self.device)
         self.model.eval()
         self.start_token = '<|endoftext|>'
-        self.arabert_prep = ArabertPreprocessor(model_name="aubmindlab/aragpt2-mega")
+        self.arabert_prep = ArabertPreprocessor(model_name="aubmindlab/aragpt2-base")
         print("Loaded GPT-2 model!")
 
     def check_probabilities(self, in_text, topk=40):
@@ -212,15 +212,16 @@ class BERTLM(AbstractLanguageChecker):
         self.device = torch.device(
             "cuda" if torch.cuda.is_available() else "cpu")
         self.tokenizer = BertTokenizer.from_pretrained(
-            model_name_or_path,
+            "aubmindlab/bert-base-arabertv02",
             do_lower_case=False)
         self.model = BertForMaskedLM.from_pretrained(
-            model_name_or_path)
+            "aubmindlab/bert-base-arabertv02")
         self.model.to(self.device)
         self.model.eval()
         # BERT-specific symbols
         self.mask_tok = self.tokenizer.convert_tokens_to_ids(["[MASK]"])[0]
         self.pad = self.tokenizer.convert_tokens_to_ids(["[PAD]"])[0]
+        self.arabert_prep = ArabertPreprocessor(model_name="aubmindlab/bert-base-arabertv02")
         print("Loaded BERT model!")
 
     def check_probabilities(self, in_text, topk=40, max_context=20,
@@ -231,6 +232,8 @@ class BERTLM(AbstractLanguageChecker):
         fed in left and right
         Speeds up inference since BERT requires prediction word by word
         '''
+        in_text = self.arabert_prep.preprocess(in_text)
+        print(in_text)
         in_text = "[CLS] " + in_text + " [SEP]"
         tokenized_text = self.tokenizer.tokenize(in_text)
         # Construct target
@@ -360,7 +363,7 @@ def main():
     However, Pérez also pointed out that it is likely that the only way of knowing for sure if unicorns are indeed the descendants of a lost alien race is through DNA. “But they seem to be able to communicate in English quite well, which I believe is a sign of evolution, or at least a change in social organization,” said the scientist.
     """
     raw_text = """
-    In a shocking finding, scientist discovered a herd of unicorns living in a remote, previously unexplored valley, in the Andes Mountains. Even more surprising to the researchers was the fact that the unicorns spoke perfect English.
+    وقالت الشبكة إن هذه هي المرة الأولى التي يحصل فيها لقاح مضاد لفيروس كوفيد - 19 على موافقة منظمة الصحة العالمية ، ما يعني أنه سيكون متاحا للجميع خلال الأسابيع القليلة المقبلة .وأضافت أن هذا اللقاح الذي يحمل اسم " تاميفلو " ( Tamiflu ) تم تطويره بالتعاون مع شركة " غلاكسو سميث كلاين " ( GlaxoSmithKline ) وشركة " سانوفي باستور " ( Sanofi Pasteur ) الفرنسية ، وهما شركتان تابعتان لمجموعة " أسترا زينيكا " ( AstraZeneca ) الدوائية .وقال رئيس قسم الأمراض المعدية في منظمة الصحة العالمية ديفيد نابارو : " نحن مسرورون للغاية بحصول هذا اللقاح على الموافقة النهائية من قبل إدارة الأغذية والعقاقير الأمريكية ( FDA ) ومنظمة الصحة العالمية ( WHO ) " .
     """
 
     '''
@@ -371,22 +374,35 @@ def main():
     payload = lm.check_probabilities(raw_text, topk=5)
     end = time.time()
     print("{:.2f} Seconds for a run with BERT".format(end - start))
+    print(payload['bpe_strings'])
+    print("===================================")
+    print(payload['real_topk'])
+    print("===================================")
+    print(payload['pred_topk'])
+
+
+    # payload = {'bpe_strings': bpe_strings,
+    #                'real_topk': real_topk,
+    #                'pred_topk': pred_topk}
+    # '''
+    # Tests for GPT-2
+    # '''
+    # lm = LM()
+    # start = time.time()
+    # payload = lm.check_probabilities(raw_text, topk=5)
+    # end = time.time()
+    # print("{:.2f} Seconds for a check with GPT-2".format(end - start))
+    # print(payload['bpe_strings'])
+    # print("===================================")
+    # print(payload['real_topk'])
+    # print("===================================")
+    # print(payload['pred_topk'])
+
+    # start = time.time()
+    # sample = lm.sample_unconditional()
+    # end = time.time()
+    # print("{:.2f} Seconds for a sample from GPT-2".format(end - start))
     # print("SAMPLE:", sample)
-
-    '''
-    Tests for GPT-2
-    '''
-    lm = LM()
-    start = time.time()
-    payload = lm.check_probabilities(raw_text, topk=5)
-    end = time.time()
-    print("{:.2f} Seconds for a check with GPT-2".format(end - start))
-
-    start = time.time()
-    sample = lm.sample_unconditional()
-    end = time.time()
-    print("{:.2f} Seconds for a sample from GPT-2".format(end - start))
-    print("SAMPLE:", sample)
 
 
 if __name__ == "__main__":
